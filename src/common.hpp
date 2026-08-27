@@ -40,6 +40,7 @@ struct StartOptions {
     bool minimized = false;
     bool hidden = false;
     bool clipboard = true;
+    bool drives = false;  // RDPDR on child sessions can stall Connect(); opt-in via --drives
     bool view_only = false;
     bool keep_session = false;
     bool desktop = false;
@@ -104,7 +105,9 @@ UINT WindowDpi(HWND hwnd);
 // dispatch.cpp
 HRESULT DispPut(IDispatch* disp, const wchar_t* name, const VARIANT& value);
 HRESULT DispGet(IDispatch* disp, const wchar_t* name, VARIANT* value);
+HRESULT DispGet1(IDispatch* disp, const wchar_t* name, const VARIANT& arg, VARIANT* value);
 HRESULT DispCall0(IDispatch* disp, const wchar_t* name);
+HRESULT DispCall1(IDispatch* disp, const wchar_t* name, const VARIANT& a, VARIANT* ret);
 HRESULT DispCall2(IDispatch* disp, const wchar_t* name, const VARIANT& a, const VARIANT& b, VARIANT* ret);
 HRESULT DispCallN(IDispatch* disp, const wchar_t* name, const VARIANT* in_order, UINT n, VARIANT* ret);
 HRESULT DispGetDispatch(IDispatch* disp, const wchar_t* name, IDispatch** out);
@@ -135,6 +138,12 @@ void DeleteJobFile(const std::wstring& path);
 // session_launch.cpp
 bool LaunchInSession(DWORD session_id, const std::wstring& command, const std::wstring& workdir,
                      DWORD* pid);
+
+// clip_bridge.cpp
+int CmdClipBridge(DWORD expect_session, DWORD parent_pid);
+void ClipHostStart();
+void ClipHostStop();
+std::wstring ClipBridgeCommand(DWORD expect_session);
 
 // rdp_host.cpp
 int RunRdpSession(const StartOptions& opt, const std::wstring& job_path);

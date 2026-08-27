@@ -38,9 +38,23 @@ HRESULT DispGet(IDispatch* disp, const wchar_t* name, VARIANT* value) {
     return Invoke(disp, name, DISPATCH_PROPERTYGET, &params, value);
 }
 
+HRESULT DispGet1(IDispatch* disp, const wchar_t* name, const VARIANT& arg, VARIANT* value) {
+    VARIANT a = arg;
+    DISPPARAMS params{};
+    params.cArgs = 1;
+    params.rgvarg = &a;
+    VariantInit(value);
+    return Invoke(disp, name, DISPATCH_PROPERTYGET, &params, value);
+}
+
 HRESULT DispCall0(IDispatch* disp, const wchar_t* name) {
     DISPPARAMS params{};
     return Invoke(disp, name, DISPATCH_METHOD, &params, nullptr);
+}
+
+HRESULT DispCall1(IDispatch* disp, const wchar_t* name, const VARIANT& a, VARIANT* ret) {
+    const VARIANT in[] = {a};
+    return DispCallN(disp, name, in, 1, ret);
 }
 
 HRESULT DispCall2(IDispatch* disp, const wchar_t* name, const VARIANT& a, const VARIANT& b, VARIANT* ret) {

@@ -71,6 +71,12 @@ user-specified process
 
 Traffic stays on the machine. Windows allows **one** child session at a time.
 
+Clipboard redirection includes **text** (RDP CLIPRDR) and **files**. Child-session RDP does not advertise CLIPRDR file streams or create `\\tsclient` shares (the volumes are already local). File copy therefore publishes `CF_HDROP` in the other session using the shared filesystem.
+
+`--drives` still turns on the RDP control's drive mapping (`RedirectDrives` + `DriveCollection`). That is off by default: on a child session it does not create `\\tsclient`, and it can stall the connection handshake.
+
+Pass `--no-clipboard` to disable text and file clipboard.
+
 `start` does not write Run/RunOnce, does not open TCP 3389, and does not change firewall, RDP-listener, TermService, or credential-delegation policy.
 
 ## Options
@@ -83,7 +89,8 @@ Traffic stays on the machine. Windows allows **one** child session at a time.
 | `--workdir` | Working directory for the launched program |
 | `--hidden` | Hide the RDP host window |
 | `--view-only` | Ignore local keyboard/mouse; injected input in the child session is unaffected |
-| `--no-clipboard` | Do not redirect clipboard |
+| `--no-clipboard` | Do not redirect clipboard (text or files) |
+| `--drives` | Request RDP drive mapping (`\\tsclient`); off by default |
 | `--keep-session` | Do not log off on disconnect |
 | `--user` / `--password-env` | Only if auto-logon fails (PIN-only accounts, blocked delegation) |
 

@@ -23,6 +23,7 @@ add_executable(localrdp
     src/start.cpp
     src/session_entry.cpp
     src/session_launch.cpp
+    src/clip_bridge.cpp
     src/localrdp.rc
 )
 

@@ -26,12 +26,17 @@ constexpr UINT_PTR kTimerLaunch = 2;
 constexpr UINT_PTR kTimerQuit = 3;
 constexpr UINT_PTR kTimerResize = 4;
 constexpr UINT_PTR kTimerDisplay = 5;
+constexpr UINT_PTR kTimerClip = 6;
 
 const CLSID kRdpClsids[] = {
     {0xa0c63c30, 0xf08d, 0x4ab4, {0x90, 0x7c, 0x34, 0x90, 0x5d, 0x77, 0x0c, 0x7d}},  // v11 / Client10 NSF
     {0x8b918b82, 0x7985, 0x4c24, {0x89, 0xdf, 0xc3, 0x3a, 0xd2, 0xbb, 0xfb, 0xcd}},  // v10 / Client9 NSF
     {0xa3bc03a0, 0x041d, 0x42e3, {0xad, 0x22, 0x88, 0x2b, 0x78, 0x65, 0xc9, 0xc5}},  // v9 / Client8 NSF
 };
+
+const IID kNs3 = {0xb3378d90, 0x0728, 0x45c7, {0x8e, 0xd7, 0xb6, 0x15, 0x9f, 0xb9, 0x22, 0x19}};
+const IID kNs4 = {0xf50fa8aa, 0x1c7d, 0x4f59, {0xb1, 0x5c, 0xa9, 0x0c, 0xac, 0xae, 0x1f, 0xcb}};
+const IID kNs5 = {0x4f6996d5, 0xd7b1, 0x412c, {0xb0, 0xff, 0x06, 0x37, 0x18, 0x56, 0x69, 0x07}};
 
 HWND g_host_hwnd = nullptr;
 std::atomic<bool> g_stop{false};
@@ -132,7 +137,183 @@ bool PutExtendedI4(IUnknown* unk, const wchar_t* name, long value) {
     SysFreeString(b);
     VariantClear(&v);
     ext->Release();
-    return SUCCEEDED(hr);
+    if (FAILED(hr)) {
+        LogWarn(std::wstring(L"extended ") + name + L" failed: " + FormatHr(hr));
+        return false;
+    }
+    return true;
+}
+
+void LogDispatchValue(IDispatch* d, const wchar_t* name) {
+    if (!d || !name) return;
+    VARIANT v;
+    VariantInit(&v);
+    HRESULT hr = DispGet(d, name, &v);
+    wchar_t buf[192];
+    if (FAILED(hr)) {
+        swprintf_s(buf, L"%s get %s", name, FormatHr(hr).c_str());
+    } else if (v.vt == VT_BOOL) {
+        swprintf_s(buf, L"%s=%s", name, v.boolVal ? L"true" : L"false");
+    } else if (v.vt == VT_I4 || v.vt == VT_I2) {
+        swprintf_s(buf, L"%s=%ld", name, v.vt == VT_I2 ? static_cast<long>(v.iVal) : v.lVal);
+    } else if (v.vt == VT_BSTR) {
+        swprintf_s(buf, L"%s=%s", name, v.bstrVal ? v.bstrVal : L"");
+    } else {
+        swprintf_s(buf, L"%s vt=%u", name, static_cast<unsigned>(v.vt));
+    }
+    LogInfo(buf);
+    VariantClear(&v);
+}
+
+struct __declspec(uuid("d28b5458-f694-47a8-8e61-40356a767e46")) IMsRdpDrive : IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE get_Name(BSTR* pName) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_RedirectionState(VARIANT_BOOL vboolRedirState) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_RedirectionState(VARIANT_BOOL* pvboolRedirState) = 0;
+};
+
+struct __declspec(uuid("7ff17599-da2c-4677-ad35-f60c04fe1585")) IMsRdpDriveCollection : IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE RescanDrives(VARIANT_BOOL vboolDynRedir) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_DriveByIndex(ULONG index, IMsRdpDrive** pDrive) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_DriveCount(ULONG* pDriveCount) = 0;
+};
+
+struct __declspec(uuid("c1e6743a-41c1-4a74-832a-0dd06c1c7a0e")) IMsTscNonScriptable : IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE put_ClearTextPassword(BSTR) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_PortablePassword(BSTR) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_PortablePassword(BSTR*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_PortableSalt(BSTR) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_PortableSalt(BSTR*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_BinaryPassword(BSTR) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_BinaryPassword(BSTR*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_BinarySalt(BSTR) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_BinarySalt(BSTR*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE ResetPassword() = 0;
+};
+
+struct __declspec(uuid("2f079c4c-87b2-4afd-97ab-20cdb43038ae")) IMsRdpClientNonScriptable : IMsTscNonScriptable {
+    virtual HRESULT STDMETHODCALLTYPE NotifyRedirectDeviceChange(UINT_PTR, LONG_PTR) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SendKeys(long, VARIANT_BOOL*, long*) = 0;
+};
+
+struct __declspec(uuid("17a5e535-4072-4fa4-af32-c8d0d47345e9")) IMsRdpClientNonScriptable2 : IMsRdpClientNonScriptable {
+    virtual HRESULT STDMETHODCALLTYPE put_UIParentWindowHandle(UINT_PTR) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_UIParentWindowHandle(UINT_PTR*) = 0;
+};
+
+struct __declspec(uuid("b3378d90-0728-45c7-8ed7-b6159fb92219")) IMsRdpClientNonScriptable3
+    : IMsRdpClientNonScriptable2 {
+    virtual HRESULT STDMETHODCALLTYPE put_ShowRedirectionWarningDialog(VARIANT_BOOL) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_ShowRedirectionWarningDialog(VARIANT_BOOL*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_PromptForCredentials(VARIANT_BOOL) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_PromptForCredentials(VARIANT_BOOL*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_NegotiateSecurityLayer(VARIANT_BOOL) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_NegotiateSecurityLayer(VARIANT_BOOL*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_EnableCredSspSupport(VARIANT_BOOL) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_EnableCredSspSupport(VARIANT_BOOL*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_RedirectDynamicDrives(VARIANT_BOOL) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_RedirectDynamicDrives(VARIANT_BOOL*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_RedirectDynamicDevices(VARIANT_BOOL) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_RedirectDynamicDevices(VARIANT_BOOL*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_DeviceCollection(IUnknown**) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_DriveCollection(IMsRdpDriveCollection**) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_WarnAboutSendingCredentials(VARIANT_BOOL) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_WarnAboutSendingCredentials(VARIANT_BOOL*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_WarnAboutClipboardRedirection(VARIANT_BOOL) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_WarnAboutClipboardRedirection(VARIANT_BOOL*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_ConnectionBarText(BSTR) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_ConnectionBarText(BSTR*) = 0;
+};
+
+struct __declspec(uuid("f50fa8aa-1c7d-4f59-b15c-a90cacae1fcb")) IMsRdpClientNonScriptable4
+    : IMsRdpClientNonScriptable3 {
+    virtual HRESULT STDMETHODCALLTYPE put_RedirectionWarningType(long) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_RedirectionWarningType(long*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_MarkRdpSettingsSecure(VARIANT_BOOL) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_MarkRdpSettingsSecure(VARIANT_BOOL*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_PublisherCertificateChain(VARIANT*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_PublisherCertificateChain(VARIANT*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_WarnAboutPrinterRedirection(VARIANT_BOOL) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_WarnAboutPrinterRedirection(VARIANT_BOOL*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_AllowCredentialSaving(VARIANT_BOOL) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_AllowCredentialSaving(VARIANT_BOOL*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_PromptForCredsOnClient(VARIANT_BOOL) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_PromptForCredsOnClient(VARIANT_BOOL*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_LaunchedViaClientShellInterface(VARIANT_BOOL) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_LaunchedViaClientShellInterface(VARIANT_BOOL*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_TrustedZoneSite(VARIANT_BOOL) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_TrustedZoneSite(VARIANT_BOOL*) = 0;
+};
+
+void EnableDriveCollection(IMsRdpDriveCollection* col) {
+    if (!col) return;
+    HRESULT rhr = col->RescanDrives(VARIANT_FALSE);
+    ULONG n = 0;
+    col->get_DriveCount(&n);
+    LogInfo(L"DriveCount=" + std::to_wstring(n) + L" RescanDrives=" + FormatHr(rhr));
+    if (n == 0) {
+        rhr = col->RescanDrives(VARIANT_TRUE);
+        col->get_DriveCount(&n);
+        LogInfo(L"DriveCount after dynamic rescan=" + std::to_wstring(n) + L" " + FormatHr(rhr));
+    }
+    for (ULONG i = 0; i < n; ++i) {
+        IMsRdpDrive* d = nullptr;
+        HRESULT ghr = col->get_DriveByIndex(i, &d);
+        if (FAILED(ghr) || !d) {
+            LogWarn(L"DriveByIndex " + std::to_wstring(i) + L" " + FormatHr(ghr));
+            continue;
+        }
+        BSTR nm = nullptr;
+        d->get_Name(&nm);
+        HRESULT phr = d->put_RedirectionState(VARIANT_TRUE);
+        VARIANT_BOOL st = VARIANT_FALSE;
+        d->get_RedirectionState(&st);
+        std::wstring msg = L"Drive[" + std::to_wstring(i) + L"] ";
+        msg += nm ? nm : L"?";
+        msg += L" put=" + FormatHr(phr);
+        msg += st ? L" redirected" : L" NOT redirected";
+        LogInfo(msg);
+        if (nm) SysFreeString(nm);
+        d->Release();
+    }
+}
+
+void EnableRedirectedDrives(IUnknown* control) {
+    if (!control) return;
+    IMsRdpClientNonScriptable3* ns3 = nullptr;
+    HRESULT hr = control->QueryInterface(kNs3, reinterpret_cast<void**>(&ns3));
+    if (FAILED(hr) || !ns3) {
+        LogWarn(L"QI IMsRdpClientNonScriptable3 failed: " + FormatHr(hr));
+        return;
+    }
+    ns3->put_ShowRedirectionWarningDialog(VARIANT_FALSE);
+    ns3->put_WarnAboutClipboardRedirection(VARIANT_FALSE);
+    ns3->put_PromptForCredentials(VARIANT_FALSE);
+    HRESULT dyn_hr = ns3->put_RedirectDynamicDrives(VARIANT_TRUE);
+    VARIANT_BOOL dyn = VARIANT_FALSE;
+    ns3->get_RedirectDynamicDrives(&dyn);
+    LogInfo(L"RedirectDynamicDrives put=" + FormatHr(dyn_hr) + L" get=" +
+            std::wstring(dyn ? L"true" : L"false"));
+
+    IMsRdpDriveCollection* col = nullptr;
+    hr = ns3->get_DriveCollection(&col);
+    LogInfo(L"get_DriveCollection " + FormatHr(hr) + (col ? L" ptr" : L" null"));
+    if (SUCCEEDED(hr) && col) {
+        EnableDriveCollection(col);
+        col->Release();
+    }
+    ns3->Release();
+
+    IMsRdpClientNonScriptable4* ns4 = nullptr;
+    if (SUCCEEDED(control->QueryInterface(kNs4, reinterpret_cast<void**>(&ns4))) && ns4) {
+        HRESULT a = ns4->put_LaunchedViaClientShellInterface(VARIANT_TRUE);
+        HRESULT b = ns4->put_TrustedZoneSite(VARIANT_TRUE);
+        ns4->put_WarnAboutPrinterRedirection(VARIANT_FALSE);
+        VARIANT_BOOL launched = VARIANT_FALSE;
+        ns4->get_LaunchedViaClientShellInterface(&launched);
+        LogInfo(L"LaunchedViaClientShellInterface put=" + FormatHr(a) + L" get=" +
+                std::wstring(launched ? L"true" : L"false") + L" TrustedZone=" + FormatHr(b));
+        ns4->Release();
+    }
 }
 
 std::wstring DescribeDisconnect(int reason, int extended) {
@@ -383,6 +564,24 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             return 0;
         case WM_TIMER:
+            if (st && wParam == kTimerClip) {
+                KillTimer(hwnd, kTimerClip);
+                if (st->opt && st->opt->clipboard) {
+                    ClipHostStart();
+                    DWORD sid = GetChildSessionId();
+                    if (sid != kNoSession) {
+                        DWORD pid = 0;
+                        std::wstring cmd = ClipBridgeCommand(sid);
+                        if (!LaunchInSession(sid, cmd, L"", &pid)) {
+                            LogWarn(L"clip-bridge LaunchInSession failed");
+                        } else {
+                            LogInfo(L"clip-bridge pid=" + std::to_wstring(pid) + L" session=" +
+                                    std::to_wstring(sid));
+                        }
+                    }
+                }
+                return 0;
+            }
             if (st && wParam == kTimerLaunch) {
                 KillTimer(hwnd, kTimerLaunch);
                 if (st->launched || !st->opt) return 0;
@@ -479,6 +678,23 @@ void OnConnected(void* ctx) {
     st->ever_connected = true;
     PrintOut(L"Connected.");
     LogInfo(L"OnConnected");
+    auto log_mod = [](const wchar_t* name) {
+        HMODULE m = GetModuleHandleW(name);
+        LogInfo(std::wstring(L"module ") + name + (m ? L" loaded" : L" not loaded"));
+    };
+    log_mod(L"rdpdr.dll");
+    log_mod(L"rdpcorets.dll");
+    log_mod(L"mstscax.dll");
+    log_mod(L"rdpendp.dll");
+    if (st->disp) {
+        IDispatch* adv = nullptr;
+        if (SUCCEEDED(DispGetDispatch(st->disp, L"AdvancedSettings9", &adv)) && adv) {
+            LogDispatchValue(adv, L"RedirectDrives");
+            LogDispatchValue(adv, L"DisableRdpdr");
+            LogDispatchValue(adv, L"RedirectClipboard");
+            adv->Release();
+        }
+    }
 }
 
 void OnLogin(void* ctx) {
@@ -489,6 +705,7 @@ void OnLogin(void* ctx) {
     if (id != kNoSession) msg += L" Child session id=" + std::to_wstring(id);
     PrintOut(msg);
     LogInfo(msg);
+    if (st->opt && st->opt->clipboard && st->hwnd) SetTimer(st->hwnd, kTimerClip, 800, nullptr);
     st->applied_w = 0;
     st->applied_h = 0;
     st->applied_scale = 0;
@@ -553,7 +770,15 @@ bool ConfigureControl(HostState* st) {
     TryPutOn(adv, L"AuthenticationLevel", VarI4(0));
     TryPutOn(adv, L"ContainerHandledFullScreen", VarI4(1));
     TryPutOn(adv, L"DisplayConnectionBar", VarBool(false));
+    // RDPDR must stay enabled for drive mapping and CLIPRDR file streams.
+    TryPutOn(adv, L"DisableRdpdr", VarBool(false));
+    TryPutOn(adv, L"RedirectDrives", VarBool(opt.drives));
     TryPutOn(adv, L"RedirectClipboard", VarBool(opt.clipboard));
+    TryPutOn(adv, L"RedirectPrinters", VarBool(false));
+    TryPutOn(adv, L"RedirectPorts", VarBool(false));
+    TryPutOn(adv, L"RedirectSmartCards", VarBool(false));
+    TryPutOn(adv, L"RedirectDevices", VarBool(false));
+    TryPutOn(adv, L"RedirectPOSDevices", VarBool(false));
     TryPutOn(adv, L"SmartSizing", VarBool(true));
     TryPutOn(adv, L"EnableAutoReconnect", VarBool(false));
     TryPutOn(adv, L"MaxReconnectAttempts", VarI4(0));
@@ -564,8 +789,6 @@ bool ConfigureControl(HostState* st) {
     TryPutOn(d, L"PromptForCredentials", VarBool(false));
     {
         // IMsRdpClientNonScriptable3 / 5 live on the OCX but not on the default IDispatch.
-        static const IID kNs3 = {0xb3378d90, 0x0728, 0x45c7, {0x8e, 0xd7, 0xb6, 0x15, 0x9f, 0xb9, 0x22, 0x19}};
-        static const IID kNs5 = {0x4f6996d5, 0xd7b1, 0x412c, {0xb0, 0xff, 0x06, 0x37, 0x18, 0x56, 0x69, 0x07}};
         auto put_ns = [&](const IID& iid, const wchar_t* name, VARIANT v) {
             IUnknown* p = nullptr;
             if (FAILED(st->control->QueryInterface(iid, reinterpret_cast<void**>(&p))) || !p) {
@@ -581,7 +804,6 @@ bool ConfigureControl(HostState* st) {
             }
             p->Release();
         };
-        put_ns(kNs3, L"PromptForCredentials", VarBool(false));
         put_ns(kNs5, L"AllowPromptingForCredentials", VarBool(false));
     }
 
@@ -593,6 +815,16 @@ bool ConfigureControl(HostState* st) {
     }
 
     TryPutOn(sec, L"KeyboardHookMode", VarI4(1));
+
+    LogDispatchValue(adv, L"DisableRdpdr");
+    LogDispatchValue(adv, L"RedirectDrives");
+    LogDispatchValue(adv, L"RedirectClipboard");
+    if (opt.drives) {
+        EnableRedirectedDrives(st->control);
+        LogInfo(L"Drive redirection requested (RDPDR + DriveCollection)");
+    }
+    if (opt.clipboard) LogInfo(L"CLIPRDR text enabled; file copy uses loopback CF_HDROP bridge");
+
     if (adv) adv->Release();
     if (sec) sec->Release();
 
@@ -838,6 +1070,7 @@ int RunRdpSession(const StartOptions& opt_in, const std::wstring& job_path) {
         DispatchMessageW(&msg);
     }
 
+    ClipHostStop();
     if (st.watchdog) KillTimer(hwnd, kTimerWatchdog);
     if (st.sink) {
         st.sink->Unadvise();

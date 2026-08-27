@@ -29,7 +29,8 @@ void PrintHelp() {
     PrintOut(L"  --timeout SEC      Connect timeout (default 90)");
     PrintOut(L"  --minimized        Start the host window minimized");
     PrintOut(L"  --hidden           Hide the host window (session still runs)");
-    PrintOut(L"  --no-clipboard     Do not redirect the clipboard");
+    PrintOut(L"  --no-clipboard     Do not redirect the clipboard (text or files)");
+    PrintOut(L"  --drives           Request RDP drive mapping (\\\\tsclient); often unused on loopback");
     PrintOut(L"  --view-only        Ignore local keyboard and mouse in the host window");
     PrintOut(L"  --keep-session     Do not log off the child session when the host exits");
     PrintOut(L"");
@@ -75,6 +76,19 @@ int wmain(int argc, wchar_t** argv) {
             return 1;
         }
         return CmdSessionEntry(job, expect_session);
+    }
+
+    if (argc >= 2 && Eq(argv[1], L"--clip-bridge")) {
+        DWORD expect_session = kNoSession;
+        DWORD parent_pid = 0;
+        for (int i = 2; i < argc; ++i) {
+            if (Eq(argv[i], L"--expect-session") && i + 1 < argc) {
+                expect_session = static_cast<DWORD>(_wtol(argv[++i]));
+            } else if (Eq(argv[i], L"--parent-pid") && i + 1 < argc) {
+                parent_pid = static_cast<DWORD>(_wtol(argv[++i]));
+            }
+        }
+        return CmdClipBridge(expect_session, parent_pid);
     }
 
     StartOptions opt;
@@ -165,6 +179,14 @@ int wmain(int argc, wchar_t** argv) {
         }
         if (Eq(a, L"--no-clipboard")) {
             opt.clipboard = false;
+            continue;
+        }
+        if (Eq(a, L"--drives")) {
+            opt.drives = true;
+            continue;
+        }
+        if (Eq(a, L"--no-drives")) {
+            opt.drives = false;
             continue;
         }
         if (Eq(a, L"--view-only")) {
