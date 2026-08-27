@@ -1,0 +1,17 @@
+/build/
+/out/
+/cmake-build-*/
+/.vs/
+/CMakeUserPresets.json
+*.user
+*.suo
+*.sdf
+*.VC.db
+*.aps
+*.tlh
+*.tli
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.log
