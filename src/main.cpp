@@ -226,11 +226,6 @@ int wmain(int argc, wchar_t** argv) {
             opt.drives = true;
             continue;
         }
-        if (Eq(a, L"--no-drives")) {
-            if (!options_allowed) return 1;
-            opt.drives = false;
-            continue;
-        }
         if (Eq(a, L"--view-only")) {
             if (!options_allowed) return 1;
             opt.view_only = true;
