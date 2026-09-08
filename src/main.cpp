@@ -1,6 +1,9 @@
 #include "common.hpp"
 
 #include <algorithm>
+#include <cerrno>
+#include <climits>
+#include <cwchar>
 
 namespace {
 
@@ -51,9 +54,29 @@ bool NeedValue(int i, int argc, const wchar_t* flag) {
     return true;
 }
 
-int ParseInt(const wchar_t* s, int def) {
-    if (!s || !*s) return def;
-    return _wtoi(s);
+bool ParseInt(const wchar_t* s, int* value) {
+    if (!s || !*s || !value) return false;
+    errno = 0;
+    wchar_t* end = nullptr;
+    long parsed = std::wcstol(s, &end, 10);
+    if (errno == ERANGE || end == s || *end != L'\0' || parsed < INT_MIN || parsed > INT_MAX) {
+        return false;
+    }
+    *value = static_cast<int>(parsed);
+    return true;
+}
+
+bool ParseIntOption(int* index, int argc, wchar_t** argv, int* destination) {
+    const wchar_t* flag = argv[*index];
+    if (!NeedValue(*index, argc, flag)) return false;
+    int value = 0;
+    if (!ParseInt(argv[*index + 1], &value)) {
+        PrintErr(std::wstring(L"Invalid integer for ") + flag + L": " + argv[*index + 1]);
+        return false;
+    }
+    *destination = value;
+    ++*index;
+    return true;
 }
 
 }  // namespace
@@ -91,12 +114,31 @@ int wmain(int argc, wchar_t** argv) {
         return CmdClipBridge(expect_session, parent_pid);
     }
 
+    if (argc < 2) {
+        PrintHelp();
+        return 0;
+    }
+
+    if (Eq(argv[1], L"-h") || Eq(argv[1], L"--help") || Eq(argv[1], L"/?")) {
+        PrintHelp();
+        return 0;
+    }
+    if (Eq(argv[1], L"--version") || Eq(argv[1], L"-V")) {
+        PrintOut(L"LocalRDP " LOCALRDP_VERSION_STRING);
+        return 0;
+    }
+
     StartOptions opt;
-    std::wstring verb;
+    std::wstring verb = argv[1];
     std::vector<std::wstring> program_args;
     bool after_dash = false;
 
-    for (int i = 1; i < argc; ++i) {
+    const bool options_allowed = Eq(verb.c_str(), L"start") || Eq(verb.c_str(), L"desktop");
+    if (!options_allowed && argc > 2) {
+        PrintErr(L"`" + verb + L"` does not accept options or arguments.");
+        return 1;
+    }
+    for (int i = 2; i < argc; ++i) {
         const wchar_t* a = argv[i];
         if (after_dash) {
             program_args.emplace_back(a);
@@ -115,89 +157,92 @@ int wmain(int argc, wchar_t** argv) {
             return 0;
         }
         if (Eq(a, L"--width")) {
-            if (!NeedValue(i, argc, a)) return 1;
-            opt.width = ParseInt(argv[++i], opt.width);
+            if (!options_allowed || !ParseIntOption(&i, argc, argv, &opt.width)) return 1;
             continue;
         }
         if (Eq(a, L"--height")) {
-            if (!NeedValue(i, argc, a)) return 1;
-            opt.height = ParseInt(argv[++i], opt.height);
+            if (!options_allowed || !ParseIntOption(&i, argc, argv, &opt.height)) return 1;
             continue;
         }
         if (Eq(a, L"--x")) {
-            if (!NeedValue(i, argc, a)) return 1;
-            opt.x = ParseInt(argv[++i], opt.x);
+            if (!options_allowed || !ParseIntOption(&i, argc, argv, &opt.x)) return 1;
             continue;
         }
         if (Eq(a, L"--y")) {
-            if (!NeedValue(i, argc, a)) return 1;
-            opt.y = ParseInt(argv[++i], opt.y);
+            if (!options_allowed || !ParseIntOption(&i, argc, argv, &opt.y)) return 1;
             continue;
         }
         if (Eq(a, L"--scale")) {
-            if (!NeedValue(i, argc, a)) return 1;
-            opt.scale = ParseInt(argv[++i], opt.scale);
+            if (!options_allowed || !ParseIntOption(&i, argc, argv, &opt.scale)) return 1;
             continue;
         }
         if (Eq(a, L"--timeout")) {
-            if (!NeedValue(i, argc, a)) return 1;
-            opt.timeout_sec = std::max(5, ParseInt(argv[++i], opt.timeout_sec));
+            if (!options_allowed || !ParseIntOption(&i, argc, argv, &opt.timeout_sec)) return 1;
+            opt.timeout_sec = std::max(5, opt.timeout_sec);
             continue;
         }
         if (Eq(a, L"--title")) {
-            if (!NeedValue(i, argc, a)) return 1;
+            if (!options_allowed || !NeedValue(i, argc, a)) return 1;
             opt.title = argv[++i];
             continue;
         }
         if (Eq(a, L"--workdir")) {
-            if (!NeedValue(i, argc, a)) return 1;
+            if (!options_allowed || !NeedValue(i, argc, a)) return 1;
             opt.workdir = argv[++i];
             continue;
         }
         if (Eq(a, L"--user")) {
-            if (!NeedValue(i, argc, a)) return 1;
+            if (!options_allowed || !NeedValue(i, argc, a)) return 1;
             opt.user = argv[++i];
             continue;
         }
         if (Eq(a, L"--password")) {
-            if (!NeedValue(i, argc, a)) return 1;
+            if (!options_allowed || !NeedValue(i, argc, a)) return 1;
             opt.password = argv[++i];
             continue;
         }
         if (Eq(a, L"--password-env")) {
-            if (!NeedValue(i, argc, a)) return 1;
+            if (!options_allowed || !NeedValue(i, argc, a)) return 1;
             opt.password = GetEnvVar(argv[++i]);
             continue;
         }
         if (Eq(a, L"--minimized")) {
+            if (!options_allowed) return 1;
             opt.minimized = true;
             continue;
         }
         if (Eq(a, L"--hidden")) {
+            if (!options_allowed) return 1;
             opt.hidden = true;
             continue;
         }
         if (Eq(a, L"--no-clipboard")) {
+            if (!options_allowed) return 1;
             opt.clipboard = false;
             continue;
         }
         if (Eq(a, L"--drives")) {
+            if (!options_allowed) return 1;
             opt.drives = true;
             continue;
         }
         if (Eq(a, L"--no-drives")) {
+            if (!options_allowed) return 1;
             opt.drives = false;
             continue;
         }
         if (Eq(a, L"--view-only")) {
+            if (!options_allowed) return 1;
             opt.view_only = true;
             continue;
         }
         if (Eq(a, L"--keep-session")) {
+            if (!options_allowed) return 1;
             opt.keep_session = true;
             continue;
         }
         if (Eq(a, L"--fullscreen") || Eq(a, L"--full-screen")) {
+            if (!options_allowed) return 1;
             opt.fullscreen = true;
             continue;
         }
@@ -206,16 +251,7 @@ int wmain(int argc, wchar_t** argv) {
             PrintErr(L"Try `localrdp help`.");
             return 1;
         }
-        if (verb.empty()) {
-            verb = a;
-            continue;
-        }
         program_args.emplace_back(a);
-    }
-
-    if (verb.empty()) {
-        PrintHelp();
-        return 0;
     }
 
     LogInfo(L"verb=" + verb);
