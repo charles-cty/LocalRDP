@@ -120,7 +120,6 @@ bool ChildSessionsEnabled();
 DWORD GetChildSessionId();
 bool InsideChildSession();
 bool HasActiveChildSession();
-void UndoLegacyMachineChanges();
 int EnsureChildSessionsForStart();
 
 // start.cpp

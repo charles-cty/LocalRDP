@@ -131,7 +131,6 @@ EnvReport QueryEnvironment() {
                                ClsidRegistered(L"{8B918B82-7985-4C24-89DF-C33AD2BBFBCD}");
     r.inside_child_session = InsideChildSession();
     r.elevated = IsElevated();
-    UndoLegacyMachineChanges();
     r.child_session_id = GetChildSessionId();
     r.current_session_id = CurrentSessionId();
     r.transport_status = ProbeTransport(r.transport_pipe);
