@@ -1,27 +1,28 @@
 # LocalRDP
 
-Windows CLI that opens a **local loopback Remote Desktop child session** for the current user and starts a program inside it.
+A CLI tool on Windows that opens a local loopback RDP child session for the current user.
 
-The child session is a second interactive logon of the **same account**. Keyboard and mouse are isolated (each session has its own input queue). Files, installed applications, and profile data are shared. This is **not** a security boundary.
+The RDP child session is a second interactive logon of the same account via the Remote Desktop technology on Windows. Display, keyboard and mouse are isolated while files, applications, and user profile data are shared.
+
+This is **NOT** a security boundary or an isolation boundary.
 
 ## Requirements
 
-- Windows 10 1903+, Windows 11, or Windows Server — **Pro / Enterprise / Education / Server**. Home editions have no Remote Desktop *server* component.
-- Visual Studio 2022 with MSVC and ATL (to build)
-- CMake 3.21+
-- If Windows child sessions are not already enabled, the first `start` / `desktop` may prompt once for administrator approval (`WTSEnableChildSessions`). LocalRDP does not change the firewall, RDP listener, TermService, or credential-delegation policy.
+- Windows 10 1903+, Windows 11, or Windows Server — **Pro / Enterprise / Education / Server**. (Home editions have no RDP *server* component.)
+- Visual Studio 2022
+- CMake
+
+If Windows child sessions are not already enabled, the first `start` / `desktop` may prompt once for administrator approval (`WTSEnableChildSessions`).
+
+By default, it doesn't require authentication or user logins, but sometimes the security policy will block it (so such logins are necessary).
 
 ## Build
-
-From PowerShell 7:
 
 ```powershell
 .\build.ps1              # Release
 .\build.ps1 -Config Debug
 .\build.ps1 -Clean
 ```
-
-The binary is `build\bin\Release\localrdp.exe`.
 
 ## Usage
 
@@ -84,27 +85,32 @@ Pass `--no-clipboard` to disable text and file clipboard.
 | Flag | Meaning |
 |------|---------|
 | `--width` / `--height` | Initial **window client** size (even width). The remote desktop tracks the window; resize updates the session. Default is about 5/6 of the current monitor work area, centered. |
+| `--x` / `--y` | Initial host-window position in screen pixels |
 | `--scale` | 100–500 percent; default follows the host window DPI and updates if the window moves to another monitor |
 | `--fullscreen` | Start full screen (toggle with F11 or Ctrl+Alt+Break) |
+| `--title` | Host window title |
 | `--workdir` | Working directory for the launched program |
+| `--timeout` | Seconds to wait for the RDP connection; default 90, minimum 5 |
+| `--minimized` | Start the host window minimized |
 | `--hidden` | Hide the RDP host window |
 | `--view-only` | Ignore local keyboard/mouse; injected input in the child session is unaffected |
 | `--no-clipboard` | Do not redirect clipboard (text or files) |
 | `--drives` | Request RDP drive mapping (`\\tsclient`); off by default |
 | `--keep-session` | Do not log off on disconnect |
-| `--user` / `--password-env` | Only if auto-logon fails (PIN-only accounts, blocked delegation) |
+| `--user` | Explicit username, only if auto-logon fails (PIN-only accounts, blocked delegation) |
+| `--password` | Explicit password. Avoid it when possible: it is visible in the command line; prefer `--password-env`. |
+| `--password-env` | Environment-variable name containing the password |
 
-## Limits (Windows behaviour, not bugs)
+## Limitations
 
 - Home edition is unsupported.
-- One child session per machine.
-- Auto-logon needs a real account password; Windows Hello / PIN-only accounts may prompt.
-- Same user, same files: do not treat this as sandboxing.
+- One active child session **per machine**.
+- Same user, same files, no isolation.
 - The in-session helper dismisses only the known `CrossDeviceResume.exe` error dialog that Windows itself shows in child sessions.
 
 ## Logs
 
-`%LOCALAPPDATA%\LocalRDP\localrdp.log`
+Placed at `%LOCALAPPDATA%\LocalRDP\localrdp.log`.
 
 ## License
 
