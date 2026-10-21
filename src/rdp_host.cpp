@@ -786,7 +786,10 @@ bool ConfigureControl(HostState* st) {
         ns3->Release();
     }
     LogInfo(L"ConnectionBarText set hr=" + FormatHr(bar_hr));
-    TryPutOn(adv, L"DisplayConnectionBar", VarBool(false));
+    TryPutOn(adv, L"DisplayConnectionBar", VarBool(true));
+    TryPutOn(adv, L"ConnectionBarShowPinButton", VarBool(true));
+    LogDispatchValue(adv, L"DisplayConnectionBar");
+    LogDispatchValue(adv, L"ConnectionBarShowPinButton");
     // RDPDR must stay enabled for drive mapping and CLIPRDR file streams.
     TryPutOn(adv, L"DisableRdpdr", VarBool(false));
     TryPutOn(adv, L"RedirectDrives", VarBool(opt.drives));

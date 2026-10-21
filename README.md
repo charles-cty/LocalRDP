@@ -49,6 +49,7 @@ localrdp stop
 `desktop` leaves the normal shell (Explorer) running so you get a full second desktop. An optional `-- program` is started after logon; the session stays up when that program exits.
 
 Pass `--fullscreen` to start full screen. Press `Ctrl+Alt+F` in the remote desktop to switch between full-screen and windowed mode.
+In full-screen mode, the Remote Desktop connection bar includes a pin button. Use it to keep the bar visible or allow it to hide automatically.
 
 Close the host window or press Ctrl+C to disconnect. By default the child session is then logged off; pass `--keep-session` to leave it.
 
