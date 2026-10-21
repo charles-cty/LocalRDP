@@ -23,7 +23,7 @@ void PrintHelp() {
     PrintOut(L"  --height N         Initial window client height");
     PrintOut(L"  --x N --y N        Host window position");
     PrintOut(L"  --scale N          Desktop scale percent 100–500 (default: follow window DPI)");
-    PrintOut(L"  --fullscreen       Start full screen (F11 or Ctrl+Alt+Break to toggle)");
+    PrintOut(L"  --fullscreen       Start full screen (Ctrl+Alt+F to toggle)");
     PrintOut(L"  --title TEXT       Host window title");
     PrintOut(L"  --workdir DIR      Working directory for the launched program");
     PrintOut(L"  --user NAME        Optional explicit user name");

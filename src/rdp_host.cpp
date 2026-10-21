@@ -72,12 +72,13 @@ VARIANT VarBstr(const wchar_t* s) {
     return x;
 }
 
-void TryPut(IDispatch* d, const wchar_t* name, VARIANT v) {
+HRESULT TryPut(IDispatch* d, const wchar_t* name, VARIANT v) {
     HRESULT hr = DispPut(d, name, v);
     if (FAILED(hr)) {
         LogWarn(std::wstring(L"property ") + name + L" failed: " + FormatHr(hr));
     }
     VariantClear(&v);
+    return hr;
 }
 
 IDispatch* GetFirstDispatch(IDispatch* parent, const wchar_t* const* names) {
@@ -91,12 +92,12 @@ IDispatch* GetFirstDispatch(IDispatch* parent, const wchar_t* const* names) {
     return nullptr;
 }
 
-void TryPutOn(IDispatch* obj, const wchar_t* name, VARIANT v) {
+HRESULT TryPutOn(IDispatch* obj, const wchar_t* name, VARIANT v) {
     if (!obj) {
         VariantClear(&v);
-        return;
+        return E_POINTER;
     }
-    TryPut(obj, name, v);
+    return TryPut(obj, name, v);
 }
 
 std::wstring ClsidString(const CLSID& c) {
@@ -467,7 +468,9 @@ bool ApplyDisplay(HostState* st) {
 
 void SetControlFullScreen(HostState* st, bool on) {
     if (!st || !st->disp) return;
-    TryPut(st->disp, L"FullScreen", VarBool(on));
+    HRESULT hr = TryPut(st->disp, L"FullScreen", VarBool(on));
+    LogInfo(L"FullScreen set value=" + std::to_wstring(on) + L" hr=" + FormatHr(hr));
+    LogDispatchValue(st->disp, L"FullScreen");
 }
 
 void EnterFullscreen(HostState* st) {
@@ -483,6 +486,7 @@ void EnterFullscreen(HostState* st) {
     SetWindowPos(st->hwnd, HWND_TOP, mon.left, mon.top, mon.right - mon.left, mon.bottom - mon.top,
                  SWP_FRAMECHANGED | SWP_SHOWWINDOW);
     st->fullscreen = true;
+    LogInfo(L"Host fullscreen entered");
     SetControlFullScreen(st, true);
     ResizeAx(st);
     ScheduleDisplaySync(st, 200);
@@ -495,16 +499,11 @@ void LeaveFullscreen(HostState* st) {
     SetWindowLongPtrW(st->hwnd, GWL_STYLE, static_cast<LONG_PTR>(style | WS_VISIBLE));
     if (st->restore_ex) SetWindowLongPtrW(st->hwnd, GWL_EXSTYLE, static_cast<LONG_PTR>(st->restore_ex));
     st->fullscreen = false;
+    LogInfo(L"Host fullscreen left");
     SetControlFullScreen(st, false);
     if (st->restore.length) SetWindowPlacement(st->hwnd, &st->restore);
     ResizeAx(st);
     ScheduleDisplaySync(st, 200);
-}
-
-void ToggleFullscreen(HostState* st) {
-    if (!st) return;
-    if (st->fullscreen) LeaveFullscreen(st);
-    else EnterFullscreen(st);
 }
 
 void RequestClose(HostState* st) {
@@ -547,13 +546,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             mm->ptMinTrackSize.y = 320;
             return 0;
         }
-        case WM_KEYDOWN:
-        case WM_SYSKEYDOWN:
-            if (st && wParam == VK_F11) {
-                ToggleFullscreen(st);
-                return 0;
-            }
-            break;
         case WM_RDP_DISCONNECTED:
             if (st) {
                 st->disc_reason = static_cast<int>(wParam);
@@ -678,6 +670,7 @@ void OnConnected(void* ctx) {
     st->ever_connected = true;
     PrintOut(L"Connected.");
     LogInfo(L"OnConnected");
+    if (st->fullscreen) SetControlFullScreen(st, true);
     auto log_mod = [](const wchar_t* name) {
         HMODULE m = GetModuleHandleW(name);
         LogInfo(std::wstring(L"module ") + name + (m ? L" loaded" : L" not loaded"));
@@ -716,8 +709,14 @@ void OnLogin(void* ctx) {
     }
 }
 
-void OnGoFullscreen(void* ctx) { EnterFullscreen(static_cast<HostState*>(ctx)); }
-void OnLeaveFullscreen(void* ctx) { LeaveFullscreen(static_cast<HostState*>(ctx)); }
+void OnGoFullscreen(void* ctx) {
+    LogInfo(L"OnRequestGoFullScreen");
+    EnterFullscreen(static_cast<HostState*>(ctx));
+}
+void OnLeaveFullscreen(void* ctx) {
+    LogInfo(L"OnRequestLeaveFullScreen");
+    LeaveFullscreen(static_cast<HostState*>(ctx));
+}
 void OnContainerMinimize(void* ctx) {
     auto* st = static_cast<HostState*>(ctx);
     if (st && st->hwnd) ShowWindow(st->hwnd, SW_MINIMIZE);
@@ -749,6 +748,8 @@ void OnFatal(void* ctx, int code) {
 bool ConfigureControl(HostState* st) {
     IDispatch* d = st->disp;
     const StartOptions& opt = *st->opt;
+    LogInfo(L"Fullscreen shortcut: native Ctrl+Alt+F; host initial state=" +
+            std::to_wstring(st->fullscreen));
 
     int desk_w = 0, desk_h = 0;
     ClientDesktopSize(st->hwnd, &desk_w, &desk_h);
@@ -768,7 +769,23 @@ bool ConfigureControl(HostState* st) {
 
     TryPutOn(adv, L"EnableCredSspSupport", VarBool(true));
     TryPutOn(adv, L"AuthenticationLevel", VarI4(0));
-    TryPutOn(adv, L"ContainerHandledFullScreen", VarI4(1));
+    HRESULT container_fullscreen_hr =
+        TryPutOn(adv, L"ContainerHandledFullScreen", VarI4(1));
+    LogInfo(L"ContainerHandledFullScreen set hr=" + FormatHr(container_fullscreen_hr));
+    LogDispatchValue(adv, L"ContainerHandledFullScreen");
+    // Configure the control's own shortcut; its keyboard handling can bypass the host queue.
+    HRESULT fullscreen_hotkey_hr = TryPutOn(adv, L"HotKeyFullScreen", VarI4('F'));
+    LogInfo(L"HotKeyFullScreen set hr=" + FormatHr(fullscreen_hotkey_hr));
+    LogDispatchValue(adv, L"HotKeyFullScreen");
+    IMsRdpClientNonScriptable3* ns3 = nullptr;
+    HRESULT bar_hr = st->control->QueryInterface(kNs3, reinterpret_cast<void**>(&ns3));
+    if (SUCCEEDED(bar_hr)) {
+        BSTR title = SysAllocString(opt.title.c_str());
+        bar_hr = ns3->put_ConnectionBarText(title);
+        SysFreeString(title);
+        ns3->Release();
+    }
+    LogInfo(L"ConnectionBarText set hr=" + FormatHr(bar_hr));
     TryPutOn(adv, L"DisplayConnectionBar", VarBool(false));
     // RDPDR must stay enabled for drive mapping and CLIPRDR file streams.
     TryPutOn(adv, L"DisableRdpdr", VarBool(false));
@@ -1060,10 +1077,6 @@ int RunRdpSession(const StartOptions& opt_in, const std::wstring& job_path) {
 
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
-        if ((msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN) && msg.wParam == VK_F11) {
-            ToggleFullscreen(&st);
-            continue;
-        }
         if (st.ipao && st.ipao->TranslateAccelerator(&msg) == S_OK) continue;
         if (IsDialogMessageW(hwnd, &msg)) continue;
         TranslateMessage(&msg);

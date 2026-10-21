@@ -48,6 +48,8 @@ localrdp stop
 
 `desktop` leaves the normal shell (Explorer) running so you get a full second desktop. An optional `-- program` is started after logon; the session stays up when that program exits.
 
+Pass `--fullscreen` to start full screen. Press `Ctrl+Alt+F` in the remote desktop to switch between full-screen and windowed mode.
+
 Close the host window or press Ctrl+C to disconnect. By default the child session is then logged off; pass `--keep-session` to leave it.
 
 ## How it works
@@ -87,7 +89,7 @@ Pass `--no-clipboard` to disable text and file clipboard.
 | `--width` / `--height` | Initial **window client** size (even width). The remote desktop tracks the window; resize updates the session. Default is about 5/6 of the current monitor work area, centered. |
 | `--x` / `--y` | Initial host-window position in screen pixels |
 | `--scale` | 100–500 percent; default follows the host window DPI and updates if the window moves to another monitor |
-| `--fullscreen` | Start full screen (toggle with F11 or Ctrl+Alt+Break) |
+| `--fullscreen` | Start full screen (toggle with Ctrl+Alt+F) |
 | `--title` | Host window title |
 | `--workdir` | Working directory for the launched program |
 | `--timeout` | Seconds to wait for the RDP connection; default 90, minimum 5 |
